@@ -77,9 +77,9 @@ void UCTSearch(TREE_NODE& root){
 
 } 
 
-MOVE genMove(int* board, int color_to_play){
-
-}
+//MOVE genMove(int* board, int color_to_play){
+//
+//}
 
 void playMove(int* curr_board, MOVE move, int& color_to_play){
 	int index_from = move.arr[0];
