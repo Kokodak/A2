@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include <unordered_set>
+#include <unordered_map>
 #include <stack> 
 #include <ctime> 
 #include <iomanip>
@@ -20,6 +21,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include <utility>      
 
 using namespace std;
 
@@ -31,10 +33,6 @@ const int EMPTY = 2;
 const int OFFBOARD = 3;
 const int NUM_COLORS = 3;
 
-const int UP = 0;
-const int RIGHT = 1;
-const int DOWN = 2;
-const int LEFT = 3;
 
 int oppositeColor(int curr){
     if (curr == BLACK)
