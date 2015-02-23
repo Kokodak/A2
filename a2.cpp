@@ -3,7 +3,7 @@
 using namespace std;
 
 
-const double UCTK = 1.2;
+const double UCTK = 5.0;
 
 static random_device rd;
 static mt19937 gen(rd());
@@ -12,7 +12,7 @@ static uniform_int_distribution<int> uni_i(0, 10*10*4);
 
 struct MOVE
 {
-    int arr[3]; // index_from, index_to, flag
+    int arr[3]; // index_from, index_to, flag:illegal
 };
 
 struct TREE_NODE
@@ -27,7 +27,9 @@ struct TREE_NODE
 
 
 TREE_NODE& UCTSelect(TREE_NODE& n, int curr_color);
+TREE_NODE& LCTSelect(TREE_NODE& n, int curr_color);
 int playRandomGame(int* cloneboard, int clonecolor, unsigned int curr_key);
+int playRandomGameSub(int* curr_board, int& curr_color, unsigned int& curr_key, vector<MOVE>& curr_moves);
 bool createChildren(TREE_NODE& n);
 void updateReward(TREE_NODE& n, int random_result, int curr_color);
 void setBest(TREE_NODE& n);
@@ -45,7 +47,7 @@ void playMove(int* curr_board, MOVE& move, int& colortp, unsigned int& curr_key)
 void unPlayMove(int* curr_board, MOVE& move, int& colortp, unsigned int& curr_key);
 MOVE stringToMove(string move_string);
 bool stringMoveIsLegal(string move_string);
-bool moveIsLegal(MOVE move);
+bool moveIsLegalInBoard(MOVE move, int* curr_board, int curr_color);
 string moveToString(MOVE move);
 void setBoardAndNeighbors();
 
@@ -72,8 +74,116 @@ unsigned int** random_table = NULL;
 unsigned int init_key = gen();
 unsigned int clonekey = init_key;
 unordered_map<unsigned int, TREE_NODE> hash_table;
+double* time_array = NULL;
 
 
+bool moveIsLegalInBoard(MOVE move, int* curr_board, int curr_color){
+    int index_from = move.arr[0];
+    int index_to = move.arr[1];
+    
+    int we = 1;
+    int ns = n + 1;
+    
+    char col_from, col_to;
+    int row_from, row_to;
+    
+    if (!(curr_board != NULL && n > 0)){
+        return false;
+    }
+    
+    if(!(index_from == index_to - we || index_from == index_to + we ||
+         index_from == index_to + ns || index_from == index_to - ns)){
+        return false;
+    }
+    
+    
+    row_from = index_from / (n+1);
+    col_from = (char)(index_from % (n+1) + 'a');
+    row_to = index_to / (n+1);
+    col_to = (char)(index_to % (n+1) + 'a');
+    
+    if(!(row_from >= 1 && row_from <= n)){
+        return false;
+    }
+    if(!(row_to >= 1 && row_to <= n)){
+        return false;
+    }
+    if(!(col_from >= 'a' && col_from <= ('a'+n-1))){
+        return false;
+    }
+    if(!(col_to >= 'a' && col_to <= ('a'+n-1))){
+        return false;
+    }
+    
+    if(!(curr_board[index_from] == curr_color && curr_board[index_to] == oppositeColor(curr_color))){
+        return false;
+    }
+    
+    return true;
+}
+
+int playRandomGameSub(int* curr_board, int& curr_color, unsigned int& curr_key, vector<MOVE>& curr_moves){
+    if(curr_moves.empty()){
+        return curr_color;
+    }
+    MOVE move_todo;
+    int move_end = (int)curr_moves.size() - 1;
+    
+    while(move_end >= 0){
+        int i = uni_i(gen) % (move_end + 1);
+        move_todo = curr_moves.at(i);
+        if (moveIsLegalInBoard(move_todo, curr_board, curr_color)){
+            break;
+        }
+        curr_moves[i] = curr_moves[move_end];
+        move_end--;
+        curr_moves.pop_back();
+    }
+    
+    if (move_end < 0){
+        return curr_color;
+    }
+    
+    int push_index = move_todo.arr[1];
+    for(int i = 0; i < 4; i++){
+        int push_neighbor = neighbors[push_index][i];
+        if (push_neighbor == 0){
+            break;
+        }
+        MOVE m;
+        m.arr[0] = push_index;
+        m.arr[1] = push_neighbor;
+        m.arr[2] = false;
+        curr_moves.push_back(m);
+    }
+    
+    playMove(curr_board, move_todo, curr_color, curr_key);
+    
+    return -1;
+}
+
+int playRandomGame(int* cloneboard, int clonecolor, unsigned int curr_key){
+    // play random game
+    // return loser
+    
+    int* curr_board = cloneboard;
+    int curr_color = clonecolor;
+    vector<MOVE> curr_moves = findPossibleMoves(curr_board, clonecolor);
+    vector<MOVE> oppo_moves = findPossibleMoves(curr_board, oppositeColor(clonecolor));
+    
+    while(1){
+        int ret;
+        if (curr_color == clonecolor){
+            ret = playRandomGameSub(curr_board, curr_color, curr_key, curr_moves);
+        } else {
+            ret = playRandomGameSub(curr_board, curr_color, curr_key, oppo_moves);
+        }
+        if (ret != -1){
+            return ret;
+        }
+    }
+    
+} // TO IMPROVE
 
 TREE_NODE& UCTSelect(TREE_NODE& n, int curr_color){
     
@@ -107,22 +217,37 @@ TREE_NODE& UCTSelect(TREE_NODE& n, int curr_color){
     return result;
 }
 
-int playRandomGame(int* cloneboard, int clonecolor, unsigned int curr_key){
-    // play random game
-    // return loser
+TREE_NODE& LCTSelect(TREE_NODE& n, int curr_color){
     
-    int* curr_board = cloneboard;
-    int curr_color = clonecolor;
-    while(1){
-        vector<MOVE> curr_moves = findPossibleMoves(curr_board, curr_color);
-        if(curr_moves.empty()){
-            return curr_color;
+    double bestuct = 1.0;
+    
+    TREE_NODE& next = *(n.child);
+    TREE_NODE& result = next;
+    
+    int epsilon = 4000;
+    while (1){
+        double uctvalue;
+        if (next.visits > 0){
+            double reward_rate = (double)next.rewards / (double)next.visits;
+            double uct = - UCTK * sqrt(log(n.visits) / (5*next.visits));
+            uctvalue = reward_rate + uct;
+        } else {
+            uctvalue = - epsilon - uni_i(gen);
         }
-        MOVE move_todo = randomSelectAMove(curr_moves);
-        playMove(curr_board, move_todo, curr_color, curr_key);
+        
+        if (uctvalue < bestuct){
+            bestuct = uctvalue;
+            result = next;
+        }
+        
+        if(next.sibling == NULL){
+            break;
+        } else {
+            next = *(next.sibling);
+        }
     }
-    
-} // TO IMPROVE
+    return result;
+}
 
 bool createChildren(TREE_NODE& n){
     
@@ -194,7 +319,9 @@ void setBest(TREE_NODE& n){
     double best_reward_rate = 0.0;
     while (1){
         double reward_rate;
-        if (next.visits > 0){
+        if (next.visits == INT_MAX){
+            reward_rate = next.rewards > 0 ? 1 : 0;
+        } else if (next.visits > 0){
             reward_rate = (double)next.rewards / (double)next.visits;
         } else {
             reward_rate = 0.0;
@@ -219,7 +346,9 @@ void setWorst(TREE_NODE& n){
     double best_reward_rate = 1.0;
     while (1){
         double reward_rate;
-        if (next.visits > 0){
+        if (next.visits == INT_MAX){
+            reward_rate = next.rewards > 0 ? 0 : 1;
+        } else if (next.visits > 0){
             reward_rate = (double)next.rewards / (double)next.visits;
         } else {
             reward_rate = 1.0;
@@ -248,20 +377,22 @@ void playSimulation(TREE_NODE& n){
             terminal = createChildren(n);
         }
         if(!terminal){
-            TREE_NODE& next = UCTSelect(n, curr_color);
+            TREE_NODE* next = &LCTSelect(n, curr_color);
             
-            playMove(cloneboard, next.tmove, clonecolor, clonekey);
-            playSimulation(next);
+            playMove(cloneboard, next->tmove, clonecolor, clonekey);
+            playSimulation(*next);
         }
     }
     n.visits++;
-    if (!terminal)
+    if (terminal)
+        n.visits = INT_MAX;
+    
     updateReward(n, random_result, curr_color);
     
     if(n.child != NULL){
-        if (curr_color == oppositeColor(my_color))
-            setBest(n); // set n.best_child to the child with highest rewardrate
-        else
+//        if (curr_color == oppositeColor(my_color))
+//            setBest(n); // set n.best_child to the child with highest rewardrate
+//        else
             setWorst(n);
     }
 }
@@ -329,8 +460,7 @@ MOVE genMove(int* board, int color_to_play){
     start = chrono::high_resolution_clock::now();
     
     
-    double p_inc = 1.0 / double(n * n);
-    double p = 0.0 + p_inc * (moves_after_start + 1);
+    double p = time_array[moves_after_start];
     
     double time_l = time_left * p;
     
@@ -351,8 +481,7 @@ MOVE genMove(int* board, int color_to_play){
         
         UCTSearch(*root);
         
-        cerr << "iteration " << iteration_count << endl;
-        
+//        cerr << "iteration " << iteration_count << endl;
         iteration_count++;
         
         // timer MACOS or LINUX
@@ -371,10 +500,11 @@ MOVE genMove(int* board, int color_to_play){
         move.arr[0] = 0;
         move.arr[1] = 0;
         move.arr[2] = false;
+        cerr << "Resign." << endl << flush;
     } else {
         // TO COMMENT
-        int wins = root->rewards;
-        int visits = root->visits;
+        int wins = root->best_child->rewards;
+        int visits = root->best_child->visits;
         cerr << "Move after start: " << moves_after_start << "  Iterations: " << iteration_count << endl;
         cerr << "Time used: " << duration_double << "  Time left: " << time_left << endl;
         cerr << "Winrate: " << (double)wins/(double)visits << "  Wins: " << wins << "  Visits: " << visits << endl;
@@ -549,47 +679,6 @@ bool stringMoveIsLegal(string move_string){
     return true;
 }
 
-bool moveIsLegal(MOVE move){
-    int index_from = move.arr[0];
-    int index_to = move.arr[1];
-    
-    int we = 1;
-    int ns = n + 1;
-    
-    char col_from, col_to;
-    int row_from, row_to;
-    
-    if (!(board != NULL && n > 0)){
-        return false;
-    }
-    
-    if(!(index_from == index_to - we || index_from == index_to + we ||
-         index_from == index_to + ns || index_from == index_to - ns)){
-        return false;
-    }
-    
-    
-    row_from = index_from / (n+1);
-    col_from = (char)(index_from % (n+1) + 'a');
-    row_to = index_to / (n+1);
-    col_to = (char)(index_to % (n+1) + 'a');
-    
-    if(!(row_from >= 1 && row_from <= n)){
-        return false;
-    }
-    if(!(row_to >= 1 && row_to <= n)){
-        return false;
-    }
-    if(!(col_from >= 'a' && col_from <= ('a'+n-1))){
-        return false;
-    }
-    if(!(col_to >= 'a' && col_to <= ('a'+n-1))){
-        return false;
-    }
-    
-    return true;
-}
-
 string moveToString(MOVE move){
     int index_from = move.arr[0];
     int index_to = move.arr[1];
@@ -639,6 +728,10 @@ void setBoardAndNeighbors(){
         }
         delete [] random_table;
         random_table = NULL;
+    }
+    if(time_array != NULL){
+        delete [] time_array;
+        time_array = NULL;
     }
     
     maxpoint = n * n + 3 * (n + 1) - 1;
@@ -761,7 +854,33 @@ void setBoardAndNeighbors(){
         cloneboard[i] = board[i];
     }
     
+    
     timer_on = false;
+    
+    
+    if (time_array == NULL){
+        time_array = new double[n*n];
+    }
+    
+//    double d = 1 / double(n*n);
+//    time_array[0] = d;
+//    for (int i = 1; i < n*n; i++){
+//        time_array[i] = time_array[i-1] + d;
+//    }
+    
+    double a1 = 0.01;
+    double d = 1 / double(n*n);
+    time_array[0] = d;
+    d = d * 2 - a1;
+    double d_inc = (d - a1) / double(n*n - 2);
+    for (int i = 1; i < n*n; i++){
+        time_array[i] = time_array[i-1] + d;
+        d -= d_inc;
+    }
+    
+//    for (int i = 0; i < n*n; i++){
+//        cerr << time_array[i] << endl;
+//    }
 }
 
 int main(int argc, char* argv[]){
@@ -789,13 +908,13 @@ int main(int argc, char* argv[]){
             
             setBoardAndNeighbors();
             
-            for (int j = 0; j < maxpoint; j++){
-                cerr << board[j] << endl;
-            }
-            for (int j = 0; j < maxpoint; j++){
-                cerr << neighbors[j][0] << " " << neighbors[j][1] << " " << neighbors[j][2] << " " << neighbors[j][3] << endl;
-            }
-            
+//            for (int j = 0; j < maxpoint; j++){
+//                cerr << board[j] << endl;
+//            }
+//            for (int j = 0; j < maxpoint; j++){
+//                cerr << neighbors[j][0] << " " << neighbors[j][1] << " " << neighbors[j][2] << " " << neighbors[j][3] << endl;
+//            }
+//            
             cerr << "Board set. Size: " << n << endl << flush;
             cout << "=\n\n" << flush;
         } else if (line.compare(0, 7, "version") == 0){
@@ -820,6 +939,7 @@ int main(int argc, char* argv[]){
             if (board == NULL){
                 cerr << "Board uninitialized." << endl << flush;
             } else {
+                cerr << showBoard(board, n) << flush;
                 cout << "= \n" << showBoard(board, n) << flush;
             }
         } else if (line.compare(0, 7, "genmove") == 0){
@@ -833,6 +953,7 @@ int main(int argc, char* argv[]){
             
             if (move.arr[0] == 0 && move.arr[1] == 0){
                 cout << "= resign\n\n" << flush;
+                break;
             } else {
                 if (timer_on == true && random){
                     moveRootToChild(move);
